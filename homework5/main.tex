@@ -1,0 +1,289 @@
+\documentclass{article}
+
+% Language setting
+% Replace `english' with e.g. `spanish' to change the document language
+\usepackage[english]{babel}
+
+
+% Set page size and margins
+% Replace `letterpaper' with `a4paper' for UK/EU standard size
+\usepackage[a4paper,margin=2.5cm]{geometry}
+
+% Header and footer Package
+\usepackage{fancyhdr}
+
+% Useful packages
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage[colorlinks=true, allcolors=blue]{hyperref}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{listings}
+\usepackage{algorithm,algorithmicx,algpseudocode}
+
+\newcommand{\course}{Symmetric Encryption}
+\newcommand{\me}{João Gaspar (025605833A)}
+\newcommand{\labName}{Homework 5}
+\date{}
+
+\fancyhead[L]{\course - \labName}
+\fancyhead[R]{\me}
+\pagestyle{fancy}
+\title{\textit{\course} - \labName}
+\author{\me}
+
+
+\begin{document}
+\maketitle
+\section{Encryption with Redundacy}
+
+\subsection{$E_k$ is AES in COUNTER mode, $Enc_k(m) = E_k(H(m) \| m \| H(m))$}
+The setup has ciphertext integrity, as it uses an hash function to get a message digest that cannot be trivially modified (it takes part of the message that is encrypted). However, it is possible to sign any message under CPA attack:
+\begin{enumerate}
+    \item Get random $m$, of size $n$, encrypted from the Oracle.
+    \item Calculate $H(m)$.
+    \item Calculate $H(m)$ and calculate $E_k(\text{Counter}_0) = H(m) \oplus c_{0}$.
+    \item Calculate $H(m)$ and calculate $E_k(\text{Counter}_{n+2}) = H(m) \oplus c_{n+2}$.
+    \item For $i=1..n+1$: \begin{enumerate}
+        \item $E_k(\text{Counter}_i) = m_i \oplus c_i$.
+    \end{enumerate}
+\end{enumerate}
+Where $c_i$ is the $i$-th block of the cipher $C$.
+
+Then we can forge a signature, by getting a message $m'$ of the same size or less than $m$ and join it all and "encrypting" it:
+
+$c_0 = E_k(\text{Counter}_0) \oplus H(m)$, $c_{n+2} = E_k(\text{Counter}_{n+2}) \oplus H(m)$. \\
+$
+\text{for } i=1..(n+1):
+    c_i = E_k(\text{Counter}_i) \oplus m_i
+$
+Note that the nonce doesn't matter as we only need one encryption and we can reuse the nonce it used (as it has to be public for decryption).
+    
+So it is not semantically secure under CPA, and thus it doesn't provide authenticated encryption.
+
+\subsection{$E_k$ is AES in COUNTER mode, $Enc_k(m) = E_k(m) \| H(E_k(m))$}
+This construction suffers to the exact same attack as before but with less steps, we can create a new encrypted message $E_k(m)$ and right afterwards, we can simply hash it to obtain the integrity block, rendering it vulnerable to CPA attacks, thus it does not provide authenticated encryption.
+
+\begin{enumerate}
+    \item Get random $m$, of size $n$, encrypted from the Oracle.
+    \item For $i=0..n$: \begin{enumerate}
+        \item $E_k(\text{Counter}_i) = m_i \oplus C_i$.
+    \end{enumerate}
+\end{enumerate}
+Then we can forge a signature, by getting a message $m'$ of the same size or less than $m$ and join it all and "encrypting" it:
+$
+\text{for } i=0..n:
+    c_i = E_k(\text{Counter}_i) \oplus m_i
+$
+$C = c \| H(c)$, where $C$ is the final ciphertext.
+
+
+\subsection{$E_k$ is AES in CBC mode, $Enc_k(m) = E_k(m \| H(m))$}
+Firstly, the construction does provide ciphertext integrity, since we after decryption can verify if the hash of message received matches the received digest allowing us to discard messages that don't meet this requirement, thus guaranteeing integrity. This integrity can only be tampered with, not recreated/attacked.
+
+It is also semantically CPA secure, as long as we use a unpredictable random IV, since, in CBC mode each component of the message, before being encrypted are added to the previous cipherblock, which essentially destroy the attack vector used in previous buildings where the same block encrypted in the same position would have the same encryption.
+
+Furthermore, due to this garbled mode of operation the same block will lead to different encryption outputs, as mentioned before, as for each encryption we use a different IV, leading to there not being any extractable relation between the encrypted message and the original message, as long as the attacker doesn't possess the key; this will also be true regarding the digest of the message, as it will also be garbled to different values when encrypted twice.
+
+Therefore, this setup provides authenticated encryption.
+
+\subsection{$E_k$ is AES in CBC mode, $Enc_k(m) = E_k(H(m) \| m)$}
+This construction also provides authenticated encryption for the exact same reasons as metioned before, they are equivalent. This time altough the digest of the message appears in the beginning of the message, it is still completely different in two encryptions of the same message because it is still garbled and "random looking" due to the randomized IV.
+
+
+\section{CCA Security}
+An implication of a cipher providing authenticated encryption, is that the same cipher will be secure against choosen ciphertext attacks.
+So its sufficient to prove that the cipher provides authenticated encryption.
+
+\subsection{Semantic Security Under CPA}
+For a challenge ciphertext $c = E_k (m \| r \| (m \oplus r))$, with random uniform $r \in \{0, 1\}^n$, the input to $E_k$ is a random element of the input space, since $r$ is fresh and uniform; This leads to different encryptions of the same message will be completely different and randomized, stripping the encryption function of any pattern.
+Since $E_k$ is a secure PRP, then its output on any single input will be indistiguishable from a uniform distribution over $\{0, 1\}^{3n}$, for all messages.
+
+Therefore, $c$ will be random and independent of any message choice; No adversary can choose a special message that can give him an advantage.
+
+The construction does provide an integrity check, in a sense, by sending the same message twice encrypted in the same ciphertext, allowing for an integrity verification after the recipient receiving the message.
+This integrity cannot be forged. Allowing an attacker to do $q$ queries to an oracle that reveals $q$ elements that are valid $c$ and its corresponding $(x, r)$ pairs, will make such that $2^{2n} - q$ plaintext-ciphertext pairs are still unseen (since $x\oplus r$ derives from the input space $x, r$ that has size $2^{2n}$), leading to a probability of a forge being:
+\begin{equation}
+    \text{P}(\text{forge}) \leq \frac{2^{2n}-q}{2^{3n} - q} = \frac{1 - \frac{q}{2^{2n}}}{2^{n} - \frac{q}{2^{2n}}},\text{ assume } q \ll 2^n = \frac{1}{2^n}
+\end{equation}
+Which is a negligible probability with regard to $n$. So it cannot be randomly guessed, which is the best bet of the attacker since there is no correlation to be seen, and furthermore, if the integrity check fails, the decryption oracle outputs only \texttt{error}, leaking no information about the decrypted value to the attacker.
+
+Therefore, it provides authenticated encryption and, by implication is CCA secure.
+
+\section{Always Use Independent Keys}
+\subsection{Describe a decryption algorithm \textit{DEC}_k}
+
+\begin{algorithm}
+\caption{Decryption algorithm \textit{DEC}_k}
+\begin{algorithmic}[H]
+\Require $k$, $c$
+\Ensure \texttt{output} $m$
+
+\State $m, r \gets E_k^{-1}(c)$
+\State \texttt{output} $m$
+\end{algorithmic}
+\end{algorithm}
+
+
+\subsection{Prove that the scheme is CPA secure}
+We provide an Oracle $\mathcal{O}$ that encrypts messages as follows, then an adversary queries the oracle with two messages $m_1, m_2$ of length $n/2$ each, and the oracle will encrypt one of them as follows:
+\begin{enumerate}
+    \item Oracle $\mathcal{O}$ chooses one of the two messages, say $m$.
+    \item Encrypts $m$ using $E_k$ to get $c = E_k(m)$.
+    \item Return $c$.
+\end{enumerate}
+Now the adversary has to guess which message was encrypted.
+
+By contradiction, we assume that there is an adversary $\mathcal{A}$ that can win the CPA security game against this scheme with non-negligible advantage.
+We will create an adversary $\mathcal{B}$ that has the objective of distinguishing between the encryption of two messages $m_0$ and $m_1$ of its choice, by querying the previous oracle.
+
+$\mathcal{B}$ will also simulate the encryption oracle for $\mathcal{A}$.
+
+\begin{enumerate}
+    \item $\mathcal{A}$ queries $\mathcal{B}$ with two messages $m_0$ and $m_1$ of length $n/2$ each.
+    \item He chooses two random $r_1, r_2 \in \{0, 1\}^{n/2}$ and concatenates it with $m_1, m_2$ to get $m_1 \| r_1$, and $m_2 \| r_2$.
+    \item $\mathcal{B}$ queries $\mathcal{O}$ with $m_1 \| r_1$ and $m_2 \| r_2$.
+    \item $\mathcal{O}$ encrypts one of the two messages and returns the ciphertext $c'$ to $\mathcal{B}$.
+    \item $\mathcal{B}$ forwards $c'$ to $\mathcal{A}$.
+    \item $\mathcal{A}$ outputs a guess $g'$ of which message was encrypted.
+    \item $\mathcal{B}$ outputs the same guess $g'$ as its guess of which message was encrypted in step 5.
+\end{enumerate}
+If $\mathcal{A}$ has a non-negligible advantage in guessing which message was encrypted, then $\mathcal{B}$ will have the same non-negligible advantage in guessing which message was encrypted in step 4., which contradicts the assumption that $E_k$ is a CPA-secure encryption scheme.
+
+But since $E_k$ is a secure encryption scheme, then no such adversary $\mathcal{A}$ can exist, and thus the scheme is CPA secure.
+
+Since we are evaluating if the scheme is CPA secure, we are not considering the decryption oracle, and thus we don't have to have an oracle that computes $DEC_k$.
+
+\subsection{Prove that the authentication code is a secure MAC.}
+Assume there exists a PPT adversary $\mathcal A$ that forges the MAC
+\[
+Mac_k(c)=E_k^{-1}(c)
+\]
+with non-negligible probability after making polynomially many queries.
+
+Consider the experiment where $E_k$ is replaced by a uniformly random permutation $P$ on $\{0,1\}^n$. Then the MAC oracle responds to queries $c$ with 
+\[
+Mac(c)=P^{-1}(c).
+\]
+For any unseen ciphertext $c'$ not previously queried, the value $P^{-1}(c')$ is uniformly random among unused strings.\\
+Hence the probability that $\mathcal A$ outputs a valid forgery $(c' ,t')$ with $t'=P^{-1}(c')$ is at most $2^{-n}$, which is negligible.
+
+Therefore, if $\mathcal A$ succeeds with non-negligible probability in the real scheme, then $\mathcal A$ distinguishes $E_k$ from a random permutation with non-negligible advantage, contradicting the CPA security of $E_k$.
+
+Thus $Mac_k(c)=E_k^{-1}(c)$ is a secure MAC.
+
+\subsection{Prove that Encrypt-then-MAC using the same key is CPA-Insecure}
+Well, if we use the same key for both encryption and MAC, then an adversary can easily win the CPA security game where he has to distinguish between the encryption of two messages of his choice.\\
+When the adversary queries the encryption oracle with two messages $m_0$ and $m_1$, the oracle will encrypt one of them, say $m$, and return the ciphertext $c = E_k(m);\ C = c \| MAC_k(m) = c \| E_k^{-1}(c) = c \| m \| r$, where $c$ is the encryption of $m$ and $C$ is the final ciphertext that includes the MAC tag.\\
+And therefore, the adversary can simply look at the tag of the ciphertext to know which message was encrypted, since the tag is just the message itself, and thus it can win the CPA security game with probability 1, which is non-negligible.
+
+\section{Authenticated Encryption with a sponge}
+\subsection{How does decryption and tag verification work?}
+To decrypt the message, we can do the same process as encryption for the key part. We will obtain $S_k$, which is the state of the sponge after absorbing the key.
+And since we know that $C_i = S_{k+i} \oplus m_i$, and we can calculate the tag through the process of decryption, we can verify if the tag is correct by comparing it with the tag received in the ciphertext. If they match, then we can be sure that the message is authentic and has not been tampered with.
+
+\begin{algorithm}
+    \algrenewcommand\algorithmicrequire{\textbf{K, C, tag}}
+    \algrenewcommand\algorithmicensure{\textbf{m or error}}
+    \caption*{\textbf{Decryption of the Sponge-based Encryption Scheme}}\label{alg:}
+    \begin{algorithmic}[1]
+        \Require $input$
+        \Ensure $output$
+        \State $S_0 \gets 0^{r+c}$
+        \State $k = len(K)$
+        \For{i=0:$k-1$} \Comment{Absorb the key}
+            \State $S_{i+1} \gets f(S_i \oplus (K_i \| 0^c))$
+        \EndFor
+        
+        \For{i=0:len($m$)-1} \Comment{Decrypt the message}
+            \State $m_i \gets C_i \oplus S_{k+i}$
+            \State $S_{k+i+1} \gets f(S_{k+i} \oplus (m_i\|0^c))$ \Comment{Done this way to improve readability and consistency}
+        \EndFor
+        \State $tag' \gets S_{k+n}[:r]$ \Comment{Extract the $R$ part of the state as the tag}
+        \If{$tag' \not= tag$}
+            \State \texttt{output} \texttt{error}
+        \EndIf
+        \State \texttt{output} $m$
+    \end{algorithmic}
+\end{algorithm}
+
+\subsection{Describe a simple forgery attack against this scheme.}
+An adversary can forge a valid ciphertext-tag pair without knowing the key by exploiting the structure of the sponge construction.
+Attacker obtains the encryption $C$ of a message $m$, afterwards, since we know that if we truncate the message at spot $n$, the tag would've been $C_{n}$, we can use that truncated message and the correspondent $C_n$ as a valid ciphertext-tag pair, and thus forge a valid ciphertext-tag pair without knowing the key.
+
+\section{Algebraic degree}
+\subsection{Compute the exact algebraic degree d.}
+ShiftRows and MixColumns are linear functions, and thus have an algebraic degree of 1, so they wont affect the degree of the cipher, as they will not increase it.
+We know that the step SubBytes is not linear, and thus it will increase the algebraic degree of the cipher, as it will introduce non-linearity to the cipher. 
+Therefore, the algebraic degree of AES will be determined by the SubBytes step.
+
+The SubBytes step is composed by two transformations:
+- Calculate the inverse of the input byte in the finite field $\mathbb{F}_{2^8}$, which by Fermat Little Theorem $x^{2^8 - 1} = 1 \Leftrightarrow x^{2^8 - 2} = x^{-1}$, and thus the algebraic degree of this transformation is $ANF(x^{-1})=HW(2^8 - 2) = HW(11111110) = 7$.
+- Apply an affine transformation to the output of the previous step, which is a linear transformation and thus has an algebraic degree of 1.
+Therefore, the algebraic degree of the SubBytes step is 7, and thus the algebraic degree of AES is also 7.
+
+Extrapolating for two rounds of AES, the algebraic degree will be at most $7^2 = 49$ ($SB \circ SB(x) = O(x^{49})$).
+If we look at one column of the state, which is composed of 4 bytes, we know that each byte will pass through one S-Box in parallel where each byte represent a 7-degree polynomial. After the step MixColumns, the columns will be mixed together, essentially we can break this down into a single S-Box that takes 4 bytes as input and produces 4 bytes as output, this encodes $\texttt{Super S-Box} = SB\rightarrow MC \rightarrow SR \rightarrow SB$.
+This view of the system, will make it such that, since we have only 32 bits of inputs, then the degree of this single S-Box will be at most $31$, thus the algebraic degree of two rounds of AES will be at most $31$.
+
+\subsection{How many maximum degree monomials appear across each output coordinate}
+
+Each column of AES, after each the two round, will be composed by 4 bytes, and each byte will be a polynomial of degree at most 31. \\
+And after the MixColumns and ShiftRows step, the columns and rows will be mixed together, however they aren't multiplied, rather they are added together, so each output bit is an XOR of certain bits drawn from the outputs of all Super S-Boxes. \\
+Since each Super S-Box operates on a disjoin set of 32 input variables, no two monomials can be combined or canceled out, and thus the number of monomials of degree $d$ in the output will be the sum of the number of monomials of degree $d$ in each Super S-Box output.
+
+Per Super S-box, we can have ${32 \choose 31} = 32$ monomial of degree $31$, and since we have 4 Super S-boxes, then we can have at most $4 \cdot 32$ monomials of degree $31$ in each output coordinate.
+Therefore we can have at most $128$ monomials of degree $31$.
+In general, if we have $32$ input variables, and we get per Super S-Box a polynomial of degree $d$, then we can have a maximum of $4 \cdot {d \choose 32}$ monomials of degree $d$ in each output coordinate.
+
+\section{Integral Attacks}
+Note: The code for the first part is implemented in \texttt{aes\_integral.py::run\_evidence} and for the second part is in \texttt{aes\_integral.py::run\_attack}, they are both called in the main function. The AES encrypt code was implemented by AI, the verification code was implemented by me with Copilot helping.
+
+\subsection{Does it mean that the degree of 3-round AES is at most 8? Explain.}
+The absence of the monomial $x_0 \dots x_7$ does not imply that the algebraic degree of 3-round AES is at most 8. It only implies that the coefficient of this specific monomial (and its multiples) is zero in the ANF representation of the output bits. The cipher may still contain higher-degree monomials involving other variables.
+
+When we have monomials that do not contain all coefficients, for example, if we have a monomial that does not contain $x_0$, then the monomial evaluates to 1 an even number of times over all assignments\\
+This is because, for all values of $x_i$, we will have the monomials for $x_0 = 0$: $x_1 \dots x_7$ and for $x_1 = 1$: $1 \cdot x_1 \dots x_7$, they take the same value independent of the value of $x_0$.\\
+For more variables that do not appear in the monomial, they will always appear a even number of times, and at most $2^n$, where $n$ is the number of variables that do not appear in the monomial.\\
+However, if a monomial is composed by all variables, then the monomial evaluates to 1 exactly once.
+(Quick note: the argument does not apply for the other values like $x_{20}$ for the sole reason that they are constant, and are never updated, hence the argument of $x_{20}=0$ and $x_{20}=1$ does not apply, since $x_{20}$ is always 0 or 1, and thus the monomial will only appear once, and not twice as in the previous case).
+
+This nice propery allows us to create easily a check to see if the monomial $x_0 \dots x_7$ appears in the output: If we XOR all the outputs of the cipher for all values of $x_0,\dots,x_7$, we can either get zero if the coefficient of this monomial is zero, or we can get $a$ if the coefficient of this monomial is $a$.
+
+Round keys don't affect this property because they are only added into the state. Since XOR is linear, it cannot create a new monomial term that depends on $x_0,\dots,x_7$ only change the constant. Thus, it cannot increase algebraic degree, such that the absence of this monomial is independent of the key.
+
+
+
+\subsection{Implement integral key recovery attack on 4 rounds of AES using the above property.}
+The attack works as follows:
+\begin{enumerate}
+    \item Build a set of 256 plaintexts where only the first byte varies (0..255) and the other 15 bytes are fixed.
+    \item Encrypt these plaintexts with 4-round AES.
+    \item For each byte of the the last-round key \begin{enumerate}
+        \item guess it to obtain the subkey $k_i$.
+        \item For each ciphertext, compute $\text{InvSBox}(c_i \oplus k_i)$ and XOR the results over all 256 ciphertexts.
+        \item For the correct $k_i$, this XOR equals 0 because it equals the XOR of the corresponding state after 3 full rounds, as seen in the previous exercise.
+        \item Wrong guesses behave like random and (with overwhelming probability) do not give zero. If multiple candidates appear, repeat with another plaintext set to filter them.
+    \end{enumerate}
+    \item Repeat the process 3 times, each time reducing the key space until we recover the full last round key.
+\end{enumerate}
+
+\subsection{Results of the evidence + attack:}
+I've set the evidence to run 8 times with different random keys for all valuse of the first byte.\\
+And the attack was ran once with a random key, for 3 different plaintext sets, as with only one, there was still a large number of key parts to be resolved, but for 2 that problem disappeared, finally I set to 3 just to be sure, with no proof to support this choice.
+\begin{lstlisting}[language=text]
+3-round integral evidence:
+  all 8 trials successful
+
+4-round integral key recovery:
+  recovered 4-th round key: [ 99, 220, 161,   1, \
+                             169, 132, 223, 238, \
+                             226,  82,  80,  83, \
+                             142, 108, 115, 127  ]
+  true 4-th round key:      [ 99, 220, 161,   1, \
+                             169, 132, 223, 238, \ 
+                             226,  82,  80,  83, \
+                             142, 108, 115, 127  ]
+\end{lstlisting}
+\end{document}

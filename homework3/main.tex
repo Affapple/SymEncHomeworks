@@ -1,0 +1,241 @@
+\documentclass{article}
+
+% Language setting
+% Replace `english' with e.g. `spanish' to change the document language
+\usepackage[english]{babel}
+
+
+% Set page size and margins
+% Replace `letterpaper' with `a4paper' for UK/EU standard size
+\usepackage[a4paper,margin=2.5cm]{geometry}
+
+% Header and footer Package
+\usepackage{fancyhdr}
+
+% Useful packages
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage[colorlinks=true, allcolors=blue]{hyperref}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{listings}
+
+\newcommand{\course}{Symmetric Encryption}
+\newcommand{\me}{João Gaspar (025605833A)}
+\newcommand{\labName}{Homework 3. Differential Cryptanalysis}
+\date{}
+
+\fancyhead[L]{\course - \labName}
+\fancyhead[R]{\me}
+\pagestyle{fancy}
+\title{\textit{\course} - \labName}
+\author{\me}
+
+
+\begin{document}
+\maketitle
+
+\section*{Initial Note}
+The AES implementation used for the first exercise was created by bluekeybo and is available on Github \url{https://github.com/bluebkeybo/AES/tree/main/src/regular/aes.py}, in order to be used instead of recreating the AES algorithm from scratch.\\
+The code was modified to be used in this lab, and the original code can be found in the previously mentioned repository.\\
+This design choice was made to save time in the implementation of the AES algorithm and to give me the possibility to easily use the individual round methods implemented by AES, necessary for the completion of the exercises 1.1 and 1.2; For the exercise 1.4, I used the AES implementation of \texttt{pycryptodome} library.
+
+\section{On AES}
+\subsection{Inner Workings}
+\subsubsection{Compute \texttt{b=}\texttt{MixColumns}(\texttt{SubBytes}(a))}
+The code for this step is implemented on \textit{Ex1\_1::ComputeB}. Since we are given only one column, I took the freedom to choose the other three columns as zeroes (Without passing them through \texttt{SubBytes} operation), and the result is shown below.
+Result:
+\begin{lstlisting}[language=python]
+$ python3 Ex1_1.py
+Ex1.1.1:
+[60 e8 f4 90]
+\end{lstlisting}
+
+
+\subsubsection{Compute $a^*$ and $b^*$}
+Since the operations are invertible, $\Delta$ is given, and we know b, we can compute $b^{*} = b \oplus \Delta$.
+Then, we can compute the inverse of \texttt{MixColumns} and \texttt{SubBytes} to get the value of $a^{*}$.
+Since $M^4 = I$, with $M$ as the matrix that represents the \texttt{MixColumns} operation, then $M^{-1} = M^3$. So, we can compute the inverse of \texttt{MixColumns} by applying it three times \cite{InvMixColumns}. I've implemented the reverse of \texttt{MixColumns} in \textit{AES::inv\_MixColumns}.
+
+Then, to reverse \texttt{SubBytes}, I've computed the inverse matrix to the init function and implemented it in \textit{AES::inv\_SubBytes} method. The solution to the exercise is implemented in \textit{Ex1\_1::ComputeAB\_star}
+
+\begin{lstlisting}[language=python]
+$ python3 Ex1_1.py
+Ex1.1.1:
+[60 e8 f4 90]
+
+Ex1.1.2:
+a_star
+[f0 64 e8 25]
+b_star
+[8c 43 9b 3f]
+\end{lstlisting}
+
+\subsection{Importance of \texttt{ShiftRow}}
+To start, I've edited the code at \textit{AES::encrypt}, to accept a new optional parameter \texttt{simplified}, that if set to true, then it will make the encryption use the simplified process explained in the assignment to be used as the Encryptor that will provide me with a plaintext, ciphertext pair. Then I also implemented the methods for encryption in the file \textit{Ex1\_2.py}, where the attack is implemented in the method \textit{Ex1\_2::attack\_column\_vectorized}, to take advavntage of the possibility of distributing work into different CPU cores, to improve attack speed.
+
+Then, with no \texttt{ShiftRows} operation, theres no diffusion between columns, only within the same column. So, we can break the attack into 4 independent attacks, one for each column. This is a huge problem, since it makes the attack much easier to break, from a keyspace of $2^{128}$ elements to a key space of $4*2^{32} = 2^{34}$ elements ($O(4 \cdot 2^{n/4})$ time complexity, where $n=\text{key-size bits}=128$ bits), since we can attack each column independently, and each column has only $2^{32}$ possible values for the key.
+This attack, as is, just needs one plaintext and one ciphertext ($O(1)$ space complexity). The problem with this attack, is that it does not take advantage in any way of the fact the \texttt{AddRoundKey} operation is significantly simpler than the original, besides the diminished computational cost of the attack. This attack therefore has a 
+
+With a trivial key, I get the correct result from the run:
+\begin{lstlisting}[language=Python]
+easyKey = b"\x00\x00\x10\x00" * 4
+\end{lstlisting}
+
+\begin{lstlisting}[language=txt]
+$ python3 Ex1_2.py
+Found keys for columns:
+Column 1: Key guess = 00001000
+Column 2: Key guess = 00001000
+Column 3: Key guess = 00001000
+Column 4: Key guess = 00001000
+\end{lstlisting}
+
+However for a random key, the attack takes a very long time to find the key, since it has to go through all $2^{32}$ possible values per column, however it is still much faster than the brute-force attack AES, which has a key space of $2^{128}$ elements.
+
+With random key \texttt{39065bc8 9dbab7c6 8a8cc902 3761f706}, I get the correct result from the run after ~20 minutes, by paralelizing the attack for each column distributed to 4 CPU cores parallelized, and by testing with chunks of $2^{20}$ keys at a time with numpy (because python loops have a lot of overhead associated, that is eliminated by taking advantage of numpy vectorized operations).
+This optimization of key batching on numpy arrays was implemented with the help of Claude AI model, taking as input my initial attack implementation, and asking it for implementation of key batching with numpy, the original input to Claude is still present in the source code, for reference.
+
+\begin{lstlisting}[language=txt]
+$ python3 Ex1_2.py
+Found keys for columns:
+Column 1: Key guess = 39065bc8
+Column 2: Key guess = 9dbab7c6
+Column 3: Key guess = 8a8cc902
+Column 4: Key guess = 3761f706
+
+Used key:
+[[39 06 5b c8]
+ [9d ba b7 c6]
+ [8a 8c c9 02]
+ [37 61 f7 06]]
+\end{lstlisting}
+
+\subsection{Importance of \texttt{MixColumns} (Exercise not done)}
+\subsubsection{Number of active S-Boxes: $4 \rightarrow 2 \rightarrow 5$}
+\subsubsection{Number of active S-Boxes: $4 \rightarrow 1 \rightarrow 4$}
+\subsubsection{Number of active S-Boxes: $5 \rightarrow 5 \rightarrow 5$}
+
+\subsection{Double AES}
+To attack Double AES, we can use the meet-in-the-middle attack.
+The attack works by encrypting the plaintext with all possible keys, and storing the results in a table.
+Then, we can decrypt the ciphertext with all possible keys, and check if the result is in the hash table.
+If it is, then we have found a collision, and we can use the keys that produced the collision to decrypt the ciphertext.
+
+Since we have $2 \times 24$-bit keys, in a naive brute-force attack, we would have to try $2^{48}$ possible keys.
+However, with the meet-in-the-middle attack, we can reduce the time complexity to $O(2^{24})$, since we only need to try $2^{24}$ keys for the encryption and $2^{24}$ keys for the decryption.
+This is possible because the operations are chained, such that the output of the first encryption is the input of the second encryption, and the output of the second encryption is the ciphertext. So, we can use the intermediate value to check for collisions.
+
+To implement the attack, we can follow these steps, given a plaintext-ciphertext pair $(P, C)$:
+\begin{itemize}
+    \item Encrypt the plaintext $P$ with all possible keys $k_1$, and store the results in a table.
+    \item Decrypt the ciphertext $C$ with all possible keys $k_2$, and for each result:
+        \begin{itemize}
+            \item Check if the result is in the table.
+            \item If it is, then we have found a collision, therefore we found the keys $k_1$ and $k_2$.
+            \item Otherwise, continue decrypting with the next key $k_2$.
+        \end{itemize}
+\end{itemize}
+This has a time complexity of $O(2\times2^{24}) = O(2^{25})$ and a space complexity of $O(2^{24})$, since we need to store the results of the encryption in a table.
+The implementation of the attack is in \textit{Ex1\_4.py}.
+
+Recovered Keys:
+\begin{lstlisting}[language=bash]
+$ python3 Ex1_4.py
+Found keys:
+Found keys:
+k1: cbb93800000000000000000000000000
+k2: 4a8a5300000000000000000000000000
+\end{lstlisting}
+The trimmed keys is k1: cbb938 and k2: 4a8a53
+
+
+\section{Differential Cryptanalysis of the DES}
+\subsection{S-Box Analysis}
+Given a $x=0x31$, $\delta_{in}=0x06$ and $\delta_{out}=0x07$ for the S-Box 1 of DES. Using the \textit{«The pairs XOR distribution table of S1»} provided in Moodle, we know that given $\delta_{in}=0x06$ and $\delta_{out}=0x07$, there are 2 input values (forming one pair) that produce such a difference.
+We also know that $S(I) \oplus S(I \oplus \delta_{in}) = \delta_{out}$, where $I$ is the input to the S-Box. Therefore, we can compute the input and output pairs that produce the given differences $\delta_{in}$ and $\delta_{out}$.
+These pairs are (obtained from the function \texttt{sbox\_analysis} implemented in \textit{Ex2.py}):
+\begin{itemize}
+    \item $0x31;\ 0x37$
+    \item $0x37;\ 0x31$
+\end{itemize}
+
+We also know that $I = x \oplus k \Leftrightarrow k = I \oplus x$
+Therefore the candidates to key are:
+\begin{itemize}
+    \item $I = 0x31$ and $I \oplus \delta_{in} = 0x37$, therefore $k = 0x31 \oplus 0x31 = 0x00$
+    \item $I = 0x37$ and $I \oplus \delta_{in} = 0x31$, therefore $k = 0x37 \oplus 0x31 = 0x06$
+\end{itemize}
+
+Initially, the key had $-\sum_{i=0}^{2^6} \frac{1}{2^6} \log_2 \frac{1}{2^6} = \frac{2^6}{2^6} \log_2 2^6 = 6$ bits of entropy, since there are $2^6$ possible keys. However, after the analysis, we have reduced the key space to 2 possible keys, therefore the key has now $-\sum_{i=0}^{2} \frac{1}{2} \log_2 \frac{1}{2} = 1$ bit of entropy. We've recovered 5 bits of the key.
+
+Code implemented in \textit{Ex2.py}.
+
+\subsection{Differential Attack on DES}
+To recover the subkey K7, we can use differential cryptanalysis on the last round of DES with the provided plaintext-ciphertext pairs.
+The attack works by analyzing the differences in the inputs and outputs of the S-Boxes in the last round using the same method implemented in the previous exercise, and using this information to narrow down the possible values of the subkey K7.
+
+I've implemented in \textit{DES-util.py} the necessary helper functions, such as: \texttt{expand} to compute the expansion of the right half of the plaintext, \texttt{sbox} to compute the output of the i-th S-Box given an input, \texttt{apply\_p\_inv} to reverse the permutation applied to the output of the S-Boxes. These three allowed us to implement the same method we applied in the previous exercise.
+
+To implement the attack, we had to trace our steps to reach the S-box, so we had $c$ and $c^*$, and to each we split them in half and to the leftmost 32 bits, we xor them together and to the rightmost 32 bits of the trail, giving us the permuted $\delta_{out}$ to which we applied \texttt{apply\_p\_inv} to get the expected output of the S-Box. Then, we had to compute the inputs of the S-Boxes, which are given by the expansion of the right half of the ciphertext xor with the subkey $K_7$, $\delta_{in}$ is given as $\text{expand}(c) \oplus \text{expand}(c^*)$, and we can compute the candidates for $K_7$ by applying the same method as in the previous exercise, where we compute the input pairs that produce the given $\delta_{in}$ and $\delta_{out}$, and then we compute the candidates for $K_7$ by xoring the input pairs with the corresponding bits of the ciphertext.
+But this was done per S-Box, using subparts of the $\delta_{in}$ and $\delta_{out}$, that gave each part of the final subkey $K_7$.
+
+This yielded a list of candidates keys per S-box, except for the S-box 4, which was inactive and therefore produced all possible keys as candidates.
+
+Then the next step was to brute-force the remaining key space. We got candidate keys that occuppied in total 48 bits. So we had to brute-force the remaining 8 bits, which is feasible since it only requires $2^8 = 256$ attempts $\times #\text{all candidate keys permutations} = 256 \times 6144$ attempts.
+
+To be able to do this brute-force attack, I've implemented the 7-round DES encryption in \textit{DES-util.py}, alongside with helper functions to do left/right circular shifts and functions to calculate PC1 and PC2 permutation alongside their inverses (the bits that weren't filled in from inverse PC2 operation where the 256 bits that were brute-forced).
+This bruteforcing attack is implemented by for all permutations of the $K_7$, invert PC2 and for all possible values of the remaining 8 bits, compute $K_0$(by inverting the shifts in the key-schedule) and then encrypt the plaintext with the recovered $K_0$ and check if the result is the same as the ciphertext. If it is, then we have found the correct key.
+
+This Master Key reconstruction is implemented in the function \textit{Ex2::reconstructMasterKey}, and is found to be \texttt{0xA8480C7EDE445AEE}.
+
+\begin{lstlisting}[language=bash]
+Exercise 2.2: Differential Cryptanalysis on DES
+--- Subkey K7 Recovery ---
+S-box 1: Best K7 subkey(s) = ['0x05', '0x15', '0x21', '0x27', '0x31', '0x37']
+                                (Score: 1/2)
+S-box 2: Best K7 subkey(s) = ['0x30'] (Score: 2/2)
+S-box 3: Best K7 subkey(s) = ['0x0a'] (Score: 2/2)
+S-box 4: Best K7 subkey(s) = [(...)] (Score: 2/2)  <- This gave all combinations
+                                                        of 6 bits
+S-box 5: Best K7 subkey(s) = ['0x25', '0x27'] (Score: 2/2)
+S-box 6: Best K7 subkey(s) = ['0x37'] (Score: 2/2)
+S-box 7: Best K7 subkey(s) = ['0x1f', '0x3f'] (Score: 2/2)
+S-box 8: Best K7 subkey(s) = ['0x23', '0x26', '0x2a', '0x2e'] (Score: 2/2)
+(Brute-forcing taskbars...)
+Recovered master key: 0xA8480C7EDE445AEE
+\end{lstlisting}
+
+Note: If running this code, I recommend using \texttt{pypy3} instead of \texttt{python3}, since it is much faster for this kind of brute-force attacks, by translating the most common pieces of code to machine code which is very helpful for this type of repetitive loops.
+
+
+\section{Even-Mansour with AES}
+\subsection{Attack with $2^{128}$ operations}
+To attack the Even-Mansour construction with AES with $2^{128}$ operations we can:
+
+For two plaintext-ciphertext pair $(P_1, C_1), (P_2, C_2)$:
+For all possible $K_0$:
+\begin{enumerate}
+    \item{Compute $\text{AES}(P_1 \oplus K_0)$ and $\text{AES}(P_2 \oplus K_0)$.}
+    \item{Compute $K_{1}^1=\text{AES}(P_1 \oplus K_0) \oplus C_1$ and $K_{1}^2=\text{AES}(P_2 \oplus K_0) \oplus C_2$}
+    \item{If the two computed $K_{1}^1$ and $K_{1}^2$ are the same, then we have found the key pair $(K_0, K_1)$.}
+\end{enumerate}
+This attack is still $2^{128}$ encryption operations instead of $2 \times 2^{128} = 2^{129}$ encryption operations because technically the $2$ is a constant that does not depend on the key size, and therefore we can ignore it when analyzing the time complexity of the attack ($2^{n+1}$).
+But a question remains, which is, can there be false positives? I believe it can, such that if we find more than one candidate key pairs, we should test them with another plaintext-ciphertext pair to check if they are correct this make's the attack complexity $\Omega(2^{128}) = O(2^{128}) \Rightarrow \Theta{2^{128}}$ instead of just $O(2^{128})$.
+
+\subsection{Research: Attack with $2^{64}$ operations}
+After some research, I found that there is an attack on the Even-Mansour construction that can achieve the $2^{64}$ operations, that is based on the birthday paradox, called the slidex attack \cite{Slidex}.
+
+It works by assuming that there exists a pair of plaintexts $P$ and $P'$ such that $P' = P \oplus K_1$, this leads to the following equations:
+\begin{equation}
+    C &= \text{AES}(P \oplus K_0) \oplus K_1 \Leftrightarrow C = \text{AES}(P') \oplus K_1 \\
+    C' &= \text{AES}(P' \oplus K_0) \oplus K_1 \Leftrightarrow C' = \text{AES}(P) \oplus K_1 \\
+\end{equation}
+Therefore, if for all our data, we find a pair $((p, c), (p', c'))$ such that $C \oplus C' = \text{AES}(P) \oplus \text{AES}(P')$, then we have found a pair of plaintexts that satisfy the condition $P' = P \oplus K_1$, and therefore we can compute $K_1$ as $K_1 = P \oplus P'$ and $K_0 = \text{AES}^{-1}(C \oplus K_1) \oplus P$.
+
+By the birthday paradox, we know that if we have $2^{n/2}$ pairs of plaintext-ciphertext, then we have a good chance of finding a pair that satisfies the condition $P' = P \oplus K_1$, therefore we can achieve the attack with $2^{64}$ operations, this is then called a birthday bound attack, being in itself a probabilistic attack, since it relies on the probability of finding a collision.
+
+\bibliographystyle{plain}
+\bibliography{references.bib}
+\end{document}

@@ -1,0 +1,254 @@
+\documentclass{article}
+
+% Language setting
+% Replace `english' with e.g. `spanish' to change the document language
+\usepackage[english]{babel}
+
+
+% Set page size and margins
+% Replace `letterpaper' with `a4paper' for UK/EU standard size
+\usepackage[a4paper,margin=2.5cm]{geometry}
+
+% Header and footer Package
+\usepackage{fancyhdr}
+
+% Useful packages
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage[colorlinks=true, allcolors=blue]{hyperref}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{listings}
+\usepackage{booktabs}
+\usepackage{nicematrix, booktabs}
+
+\newcommand{\course}{Symmetric Key Cryptography}
+\newcommand{\me}{João Gaspar (025605833A)}
+\newcommand{\labName}{Homework 2. Stream and Block Ciphers}
+\date{}
+
+\fancyhead[L]{\course - \labName}
+\fancyhead[R]{\me}
+\pagestyle{fancy}
+\title{\textit{\course} - \labName}
+\author{\me}
+
+
+\begin{document}
+\maketitle
+\section{Stream Ciphers}
+\subsection{On LFSR}
+\subsubsection{Find the internal state of the LFSR at the point where it started to generate the sequence you were sent.}
+The initial state of the LFSR is simply the first 128 bits of the sequence, which are:
+\begin{lstlisting}[language=Python]
+00101100110110101110011100001001
+10000101010100001000100111011011
+11110101100101111001011000001001
+11111111101111111101011111000111
+\end{lstlisting}
+Because the machine uses as output the last bit of the internal state and then shifts the state to the right, therefore the first 128 bits of the sequence are the initial state of the LFSR.
+
+With the file \texttt{Ex1.py} we verify that the initial state of the LFSR is indeed the one we just computed, by running the code and comparing the output with the given stream.
+
+\subsubsection{Compute and give the internal state of this LFSR, initialised with a state made of 128 ones (1111...11) after \texorpdfstring{$e$}{e} iterations using matrix calculations. Explain your answer.}
+To compute the internal state of the LFSR after $e$ iterations, we can model the LFSR as a linear transformation using a state transition matrix A, where $A s_n = s_{n+1}$, $s_n$ is a column vector that represents the state of the LFSR at time $n$, $A_{1, j} = 1$ if the ($128-j$)-th bit of the state is used in the feedback function, and $A_{i, i-1} = 1$ for $i>1$ to represent the right shift of the state.
+This matrix A is:\\
+
+\begin{equation}
+\left( \begin{array}{@{}c c@{}}
+    \begin{matrix}
+        0 & \dots & 1_{128-112} & \dots & 1_{128-30}& \dots & 1_{128-1} & 1_{128-0} \\
+    \end{matrix} \\
+    \cmidrule{1-2}
+
+    \textbf{I} & \vline \quad \textbf{0}
+    \end{array}
+\right)
+\end{equation}
+
+Where $\textbf{I}$ is the identity matrix of size $127 \times 127$ and $\textbf{0}$ is the zero matrix of size $127 \times 1$.
+To find the state after $e$ iterations, we can compute $s_e = A^e s_0 \mod 2$. This can be done efficiently using the Square and Multiply algorithm with each operation $\mod 2$.
+Which allows us to compute $A^e$ in logarithmic time with respect to $e$. The resulting vector $s_e$ will give us the internal state of the LFSR after $e$ iterations.
+
+The implementation of the Square and Multiply algorithm for matrix exponentiation alongside with the rest of the code to get the following output and stae is in the file \texttt{Ex2.py}.
+
+(Note: The leftmost bit of the state correspond to the 128-th bit of the state, and the rightmost bit correspond to the 1st bit of the state, which is the output bit of the LFSR)
+\begin{lstlisting}[language=python]
+Internal State after 2^64+13 ticks: 
+[0 1 1 1 0 0 0 1 0 0 1 0 1 1 1 0
+ 1 0 0 1 1 0 0 0 1 1 0 1 0 1 1 0
+ 0 1 0 0 1 0 1 1 1 1 0 1 1 0 0 0
+ 0 0 0 0 0 0 0 0 1 0 1 0 1 0 1 1
+ 1 0 1 1 1 0 0 0 0 1 0 1 0 0 0 0
+ 1 1 0 0 0 0 1 1 0 0 0 1 1 0 0 1
+ 0 1 1 1 0 1 1 1 0 1 0 1 1 0 1 0
+ 1 1 1 0 0 1 1 0 0 0 1 1 1 0 1 1]
+\end{lstlisting}
+
+\subsection{A Geffe-like Stream Cipher}
+\subsubsection{What is the correlation between the output of each LFSR output and the output of F?}
+\begin{table}
+    \begin{center}
+        \begin{tabular}[c]{ccc|c}
+            \textbf{$x_0$} & \textbf{$x_1$} & \textbf{$x_2$} & \textbf{F($x_0$, $x_1$, $x_2$)} \\
+            \hline
+            0 & 0 & 0 & 1 \\ 
+            0 & 0 & 1 & 1 \\
+            0 & 1 & 0 & 1 \\
+            0 & 1 & 1 & 0 \\
+            1 & 0 & 0 & 0 \\
+            1 & 0 & 1 & 0 \\
+            1 & 1 & 0 & 1 \\
+            1 & 1 & 1 & 0 \\
+        \end{tabular}
+    \end{center}
+    \caption{Correlation between LFSR outputs ($x_i$) and $F$ output}\label{tab:}
+\end{table}
+$P(F=x_0) = \frac{2}{8}$, $P(F=x_1) = \frac{4}{8}$, $P(F=x_2) = \frac{2}{8}$
+So the output function F is significantly inversely correlated with $x_0$ and $x_2$ (ie., its highly likely that F will have the inverse value of $x_0$ or $x_2$), and is not correlated with $x_1$. So we can guess $x_0$ and and assume that $F = !x_0$ and be right $\frac{6}{8}$ of the time, which is better than random guessing, and we can do the same for $x_2$.
+
+\subsubsection{Using your answer to the previous question, implement a divide-and-conquer attack to recover the key used to initialise the LFSRs}
+To implement a divide-and-conquer attack to recover the used key, we can use the correlation between the output of the function F and the outputs of the LFSRs.
+
+We can start by building a simpler machine: A machine that has only LFSR 0.
+
+By guessing the initial state of LFSR 0 (since it has 16 bits, we have $2^{16}$ possible initial states), we can generate the output of this simpler machine and compare it with the output of the original machine. 
+Since we expect the output of the original machine to match $\frac{2}{8}$ of the time with the output of LFSR 0, if our guess for the initial state of LFSR 0 is correct, we should see a match in the stream and our machine at around $\frac{2}{8}$ of the time, because of the correlation between F and $x_0$.
+
+So we optimize this state to be the one that has the same correlation between its output and the stream ($\frac{2}{8}$) and we reach the state for LFSR 0 to be:
+\begin{lstlisting}[language=Python]
+[1, 0, 1, 0, 1, 1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0]
+\end{lstlisting}
+
+Right afterwards, we can do the exact same for LFSR 2, and we reach the state for LFSR 2 to be:
+\begin{lstlisting}[language=Python]
+[0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0]
+\end{lstlisting}
+
+Finally, we can guess the state of LFSR 1 by using the output of the machine with the states we just found for LFSR 0 and LFSR 2, comparing it directly with the stream to find a key that matches the stream entirely, and we reach the state for LFSR 1 to be:
+\begin{lstlisting}[language=Python]
+[0, 0, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1, 0, 0]
+\end{lstlisting}
+
+Note that, if at the last step, a perfect match is not found, it means that our states for LFSR 0 and LFSR 2 are not correct, and we would have to try other states for LFSR 0 and LFSR 2 that also have around the same correlation with the stream until we find a perfect match for the stream, this is due to the fact that the correlation is not perfect, and there might be other states for LFSR 0 and LFSR 2 that also have a similar correlation with the stream.
+
+For LFSRs with length $n$, This attack has a runtime of $O(\text{len}(Stream) \cdot (2^{n} + 2^{n} + 2^{n})) = O(\text{len}(Stream) \cdot 2^{n})$, which is significantly better than the brute-force attack that would have a runtime of $O(\text{len}(Stream) \cdot \left(2^{n}\right)^3) = O(\text{len}(Stream) 2^{3n})$.
+And a memory complexity of $O(n)$, since we only need to store the current guess for the states of the LFSRs and the output of the machines for that guess, however, I used some extra memory at the last step to store the output of the machines to not have to recompute it to every LFSR 1 key, which will have a memory complexity of $O(\text{len}(Stream) + n)$ so it uses slightly more memory to improve the effective run time.
+
+Finally, to run the attack, it is expected at least n bits of 
+
+The implementation of this attack is in the file \texttt{Ex3.py}.
+
+\subsection{A Linearization Attack}
+\subsubsection{Consider the 50-th keystream bit as a function of the initial state. What is the degree of its polynomial expression?}
+The F-function polynomial expression is:
+\begin{equation}
+s8 \cdot s24 + s5 \cdot s48 + s40 \cdot s48 + s29 \cdot s46 + s36 + s40 + s0
+\end{equation}
+Therefore, the degree of the polynomial expression is 2, since we combine at most 2 variables in each term of the polynomial expression to get the output bit (there's no propagation of this value, besides to be used as the output).
+In general the degree of the polynomial expression for the $n$-th keystream bit of a Linear Feedback Shift Register will be always as high as the degree of the F-function, since the output of the machine is not fed back into the state, so there's no way to increase the degree of the polynomial expression for the output bit.
+
+\section{Block Ciphers --- a Modified RC5}
+From the figures, we can see that the modified RC5 uses only linear operators, which means that the output of the machine can be expressed as a linear function of the input and the key, which means that we can easily recover the key by using a known plaintext attack, where we have access to some plaintext-ciphertext pairs and we can use them to solve for the key.
+
+\subsection{Derivation of the Linear System}
+From the figure we can see that one round of the modified RC5, which I will denote as $f(x^L, X^R, K_0, K_1)$, consists of the following operations:
+\begin{equation}
+\begin{cases}
+    x^L_{i+1} = \text{lshift}_7(x_{i}^L \oplus x_i^R) \oplus K_0 \\
+    x^R_{i+1} = \text{lshift}_7(x_{i}^R \oplus x^L_{i+1}) \oplus K_1
+\end{cases}
+\end{equation}
+Where $\text{lshift}_7$ is the circular left shift by 7 bits, and $i$ is the round number.
+From this, we can prove that:
+\begin{itemize}
+    \item $\oplus$ is a linear operator, since it's just a bitwise XOR,
+    \item $\text{lshift}_7$ is a linear function, since it's just a circular left shift, which can be represented as a permutation of the bits, and permutations are linear functions.
+    \item Therefore, $f(x^L, x^R, K_0, K_1)$ is a linear function, since it's a combination of linear functions.
+\end{itemize}
+
+Furthermore, $f$ can be divided into two linear sub-functions: 
+\begin{equation}
+f(x^L, x^R, K_0, K_1)=\langle f_L(x^L, x^R, K_0, K_1), f_R(x^L, x^R, K_0, K_1) \rangle
+\end{equation}
+These two subfuctions represent the left (first 32 bits) and right (last 32 bits) output of the round function.
+From these two functions, we will prove that we can split $f(x^L, x^R, K_0, K_1)$ into $f(x^L, x^R, 0, 0) \oplus f(0, 0, K_0, K_1)$.
+
+\begin{equation}
+\begin{aligned}
+    &\begin{cases}
+        f_L(x^L, x^R, K_0, K_1) &= \text{lshift}_7(x^L \oplus x^R) \oplus K_0 = \text{lshift}_7(x_{i}^L \oplus x_i^R) \oplus 0 \oplus K_0 \\
+        f_R(x^L, x^R, K_0, K_1) &= \text{lshift}_7(x_{i}^R \oplus x^L_{i+1}) \oplus K_1 = \text{lshift}_7(x_{i}^R \oplus x^L_{i+1}) \oplus 0 \oplus K_1
+    \end{cases} \\
+    \Leftrightarrow &\begin{cases}
+        f_L(x^L, x^R, K_0, K_1) &= f_L(x^L, x^R, 0, 0) \oplus f_L(0, 0, K_0, K_1)\\
+        f_R(x^L, x^R, K_0, K_1) &= f_R(x^L, x^R, 0, 0) \oplus f_R(0, 0, K_0, K_1)
+    \end{cases} \\
+    \Leftrightarrow & f(x^L, x^R, K_0, K_1) = f(x^L, x^R, 0, 0) \oplus f(0, 0, K_0, K_1)
+\end{aligned}
+\end{equation}
+
+Moreover, knowing $f$ is a linear function:
+\begin{equation}
+\begin{aligned}
+    f(f(x^L, x^R, K_0, K_1), K_0, K_1) &= f(f(x^L, x^R, 0, 0) \oplus f(0, 0, K_0, K_1), K_0, K_1)\\
+                                       &= f(f(x^L, x^R, 0, 0), K_0, K_1) \oplus f(f(0, 0, K_0, K_1), K_0, K_1)
+\end{aligned}
+\end{equation}
+
+And since we can apply the round function 12 times to get the encryption function:
+\begin{equation}
+    f^{12}(x^L, x^R, K_0, K_1)=E(x, K_0, K_1)\\
+\end{equation}
+
+We can conclude by induction that $E(x, K_0, K_1) = E(x, 0, 0) \oplus E(0, K_0, K_1)$.
+
+\subsection{Arbitrary Plaintext Encryption Algorithm}
+To encrypt any arbitrary plaintext, we can use a known plaintext attack, where we have access to some plaintext-ciphertext pairs. We can use these pair to solve for the encryption of the zero plaintext.
+
+\begin{equation}
+    C = E(P, K_0, K_1),\ C \oplus E(P, 0, 0) = E(0, K_0, K_1) 
+\end{equation}
+
+And then from this we can encrypt any arbitrary plaintext $M$ by using the encryption of the zero plaintext and the encryption of $M$ with zero key:
+\begin{equation}
+    E(M, K_0, K_1) = E(M, 0, 0) \oplus E(0, K_0, K_1)
+\end{equation}
+
+\subsection{Implementation and Results}
+The implementation of the attack is in the file \texttt{Ex4.py}, and the output of the code is the following, where we can see that the encryption of the random message $M$ with the original key is the same as the encryption of $M$ with the zero key XOR the encryption of the zero plaintext with the original key, which proves that we can encrypt any arbitrary plaintext.
+
+Furthermore, the attacker just needs one known plaintext-ciphertext pair with no need for it to be chosen.
+Such that we have a memory requirement of just $O(1)$.
+We also have a time complexity equal to $O(1)$, since we just need to compute the encryption of the zero plaintext and the encryption of the message with zero key, which are both constant time operations.
+
+Therefore this is a devastating attack for this modified RC5, allowed by the lack of non-linear operation in the encryption function.
+
+\begin{lstlisting}[language=Python]
+$ python3 Ex4.py
+Key: fa6bc803 cb4e431b
+Known Plaintext: bdebfabac37ffd04
+Known Ciphertext: 49c161ff9dc81909
+
+Random Message: 37340151862c76de
+Encrypting M with the original key
+E(M, K0, K1) =  f180edcf3ea1910c
+
+Performing attack with known plaintext-ciphertext pair...
+E(P, 0, 0) = 26c5fe0b26d68035
+E(0, K0, K1) = 6f049ff4bb1e993c
+E(M, 0, 0) = 9e84723b85bf0830
+E(M, K0, K1) = E(M, 0, 0) xor E(0, K0, K1)
+        = 9e84723b85bf0830 xor 6f049ff4bb1e993c
+        = f180edcf3ea1910c
+E_message == E_message_original ? True
+\end{lstlisting}
+
+From this, we can conclude that the attack was successful, however it remains to be seen if we can exploit this attack to recover the key and/or decrypt other messages encrypted with the same key. My guess is that we can indeed decrypt any arbitrary message encrypted with the same key, but such will not be done in this homework, as it's not required.
+
+\subsection{Would more round make the cipher more secure?}
+No, not at all, as we shown that the encryption function can be expressed as a linear function of the plaintext and the key, which means that we can always recover the encryption of the zero plaintext and use it to encrypt any arbitrary plaintext, regardless of the number of rounds.
+Therefore, adding more rounds to this modified RC5 would not make it more secure, since the underlying issue is the lack of non-linear operations in the round function and not the hardness of each round.
+
+\end{document}
